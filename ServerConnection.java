@@ -1,0 +1,46 @@
+
+package javaapplication4;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.Socket;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+
+public class ServerConnection implements Runnable{
+    
+    private Socket server; // to connect
+    private BufferedReader in; // to read from the server
+    private PrintWriter out; // this is to send to the server(the output)
+      
+    public ServerConnection (Socket s , BufferedReader sharedReader) throws IOException{
+        server=s;
+        in= new BufferedReader (new InputStreamReader(server.getInputStream())); 
+    out=new PrintWriter(server.getOutputStream(),true); 
+    }
+// loop reads from in (BufferedReader) and it prints each line it reads
+    public void run(){ 
+        
+            String serverResponse;
+            try { 
+                while(true){ // its an infinty loop
+                serverResponse = in.readLine(); // ممكن ترمي(IOException) if the server is disconnected or the wi-fi is disconnected or the server or the client close the run or ANY error 
+                if (serverResponse==null) break; // stop dont read anything go to finally 
+                System.out.println("Server says: "+serverResponse); // this is the else it will print what it reads
+                }
+                
+            } catch (IOException ex) { // to catch any problem that happens during reading the text from the server
+                ex.printStackTrace();
+            } finally{
+                try {
+                    in.close(); // close the reading
+                } catch (IOException ex) { 
+                    ex.printStackTrace(); //there is no handling for the error cuz this class only foucse on reading and printing
+                }
+            }     
+    } // end of run      
+
+}
