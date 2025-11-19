@@ -15,8 +15,9 @@ public class NewClient implements Runnable {
     private final ArrayList<NewClient> clients;
 
     String userName = null;
-    String roomType = null;   // standard | premium | suite
-    String chosenDate = null; // YYYY-MM-DD
+    String roomType = null;
+    String checkInDate = null;
+    String checkOutDate = null;
 
     public NewClient(Socket c, ArrayList<NewClient> clients) throws IOException {
         this.client = c;
@@ -28,7 +29,7 @@ public class NewClient implements Runnable {
     @Override
     public void run() {
         try {
-            // === 1) طلب اسم المستخدم وكلمة المرور ===
+            // ==== login / register ====
             out.println("Enter username:");
             String username = in.readLine();
             if (username == null) { client.close(); return; }
@@ -40,14 +41,12 @@ public class NewClient implements Runnable {
             synchronized (NewServer.usernames) {
                 int idx = NewServer.usernames.indexOf(username);
                 if (idx == -1) {
-                    // مستخدم جديد
                     NewServer.usernames.add(username);
                     NewServer.passwords.add(password);
                     out.println("REGISTERED_SUCCESSFULLY");
                     System.out.println("New user registered: " + username);
                     this.userName = username;
                 } else {
-                    // تحقق من كلمة المرور
                     String saved = NewServer.passwords.get(idx);
                     if (saved.equals(password)) {
                         out.println("LOGIN_SUCCESS");
@@ -62,15 +61,15 @@ public class NewClient implements Runnable {
                 }
             }
 
-            // === 2) اختيار الوضع: حجز جديد أو إدارة الحجوزات ===
-            out.println("MODE?"); 
+            // ==== choose mode ====
+            out.println("MODE?"); // client: BOOK or MANAGE
             String mode = in.readLine();
             if (mode == null) return;
 
             if ("MANAGE".equalsIgnoreCase(mode)) {
-                handleManageBookings();   
+                handleManageBookings();
             } else {
-                handleNewReservation();   
+                handleNewReservationRange();
             }
 
             out.println("Done. Goodbye.");
@@ -82,42 +81,53 @@ public class NewClient implements Runnable {
         }
     }
 
-    private void handleNewReservation() throws IOException {
-        // === نوع الغرفة ===
+    // ========== new reservation with date range ==========
+    private void handleNewReservationRange() throws IOException {
+        // room type
         out.println("Choose room type (standard/premium/suite):");
         roomType = in.readLine();
 
-        // === التاريخ ===
-        out.println("Enter date (YYYY-MM-DD):");
-        chosenDate = in.readLine();
+        // check-in
+        out.println("Enter check-in date (YYYY-MM-DD):");
+        checkInDate = in.readLine();
 
-        // === عرض الغرف المتاحة ===
-        out.println("AVAILABLE:");
-        String list = listAvailableRooms();
-        out.println(list.isEmpty() ? "No available rooms" : list);
+        // check-out
+        out.println("Enter check-out date (YYYY-MM-DD):");
+        checkOutDate = in.readLine();
 
-        // === إدخال اسم الغرفة للحجز ===
-        out.println("Enter ROOM NAME to reserve (e.g., Sakura-1):");
-        String roomName = in.readLine();
-
-        String result = confirmReservation(roomName);
-        out.println(result);
-    }
-
-    // ========== إدارة الحجوزات (عرض + إلغاء) ==========
-    private void handleManageBookings() throws IOException {
-        // 1) نجيب حجوزات هذا المستخدم من السيرفر
-        ArrayList<NewServer.Reservation> myRes = NewServer.getReservationsForUser(this.userName);
-
-        if (myRes.isEmpty()) {
-            out.println("NO_RES");  // لا يوجد حجوزات
+        // basic validation
+        int startIdx = getDateIndex(checkInDate);
+        int endIdx = getDateIndex(checkOutDate);
+        if (startIdx == -1 || endIdx == -1 || endIdx <= startIdx) {
+            out.println("AVAILABLE:");
+            out.println("Invalid date range.");
             return;
         }
 
-     
+        // show rooms available for *all* nights in the range
+        out.println("AVAILABLE:");
+        String list = listAvailableRoomsForRange();
+        out.println(list.isEmpty() ? "No available rooms" : list);
+
+        out.println("Enter ROOM NAME to reserve (e.g., Sakura-1):");
+        String roomName = in.readLine();
+
+        String result = confirmReservationForRange(roomName);
+        out.println(result);
+    }
+
+    // ========== manage bookings ==========
+    private void handleManageBookings() throws IOException {
+        ArrayList<NewServer.Reservation> myRes = NewServer.getReservationsForUser(this.userName);
+
+        if (myRes.isEmpty()) {
+            out.println("NO_RES");
+            return;
+        }
+
         String data = NewServer.buildReservationData(myRes);
-        out.println("RES_LIST");  // هيدر
-        out.println(data);        // البيانات
+        out.println("RES_LIST");
+        out.println(data);
         out.println("CHOOSE_INDEX");
 
         String line = in.readLine();
@@ -144,13 +154,15 @@ public class NewClient implements Runnable {
         NewServer.Reservation target = myRes.get(idx);
         boolean ok = NewServer.cancelReservation(target);
         if (ok) {
-            out.println("Reservation cancelled for " + target.roomName + " on " + target.date);
+            out.println("Reservation cancelled for " + target.roomName +
+                        " from " + target.startDate + " to " + target.endDate);
         } else {
             out.println("Reservation not found or already cancelled.");
         }
     }
 
-    // ========== دالة تجيب رقم التاريخ ==========
+    // ========== helpers ==========
+
     private int getDateIndex(String date) {
         for (int i = 0; i < NewServer.dates.length; i++) {
             if (NewServer.dates[i].equals(date)) {
@@ -160,78 +172,116 @@ public class NewClient implements Runnable {
         return -1;
     }
 
-    // ========== عرض الغرف المتاحة للتاريخ المحدد ==========
-    private String listAvailableRooms() {
-        if (roomType == null || chosenDate == null) return "";
-        int dateIndex = getDateIndex(chosenDate);
-        if (dateIndex == -1) return "Invalid date.";
+    // rooms free for all nights in [checkInDate, checkOutDate)
+    private String listAvailableRoomsForRange() {
+        if (roomType == null || checkInDate == null || checkOutDate == null) return "";
+        int startIdx = getDateIndex(checkInDate);
+        int endIdx   = getDateIndex(checkOutDate);
+        if (startIdx == -1 || endIdx == -1 || endIdx <= startIdx) return "";
 
-        String[] rooms;
-        StringBuilder sb = new StringBuilder();
+        String[][] targetArray;
+        String[] template;
 
         if ("standard".equalsIgnoreCase(roomType)) {
-            rooms = NewServer.standardRoomsPerDate[dateIndex];
+            targetArray = NewServer.standardRoomsPerDate;
+            template = NewServer.standardTemplate;
         } else if ("premium".equalsIgnoreCase(roomType)) {
-            rooms = NewServer.premiumRoomsPerDate[dateIndex];
+            targetArray = NewServer.premiumRoomsPerDate;
+            template = NewServer.premiumTemplate;
         } else if ("suite".equalsIgnoreCase(roomType)) {
-            rooms = NewServer.suiteRoomsPerDate[dateIndex];
+            targetArray = NewServer.suiteRoomsPerDate;
+            template = NewServer.suiteTemplate;
         } else {
             return "";
         }
 
-        for (String r : rooms) {
-            if (r != null) sb.append(r).append(" ");
+        StringBuilder sb = new StringBuilder();
+
+        // for each room in template, check it's available every night
+        for (int col = 0; col < template.length; col++) {
+            boolean availableAll = true;
+            for (int d = startIdx; d < endIdx; d++) {
+                if (targetArray[d][col] == null) {
+                    availableAll = false;
+                    break;
+                }
+            }
+            if (availableAll) {
+                sb.append(template[col]).append(" ");
+            }
         }
         return sb.toString().trim();
     }
 
-    // ========== تأكيد الحجز + إضافة الحجز لقائمة السيرفر ==========
-    private String confirmReservation(String roomName) {
-        if (roomType == null || chosenDate == null || roomName == null || roomName.isEmpty()) {
+    // confirm reservation across date range
+    private String confirmReservationForRange(String roomName) {
+        if (roomType == null || checkInDate == null || checkOutDate == null ||
+                roomName == null || roomName.isEmpty()) {
             return "ERR,MissingData";
         }
 
         synchronized (NewServer.class) {
-            int dateIndex = getDateIndex(chosenDate);
-            if (dateIndex == -1) return "ERR,InvalidDate";
+            int startIdx = getDateIndex(checkInDate);
+            int endIdx   = getDateIndex(checkOutDate);
+            if (startIdx == -1 || endIdx == -1 || endIdx <= startIdx)
+                return "ERR,InvalidDateRange";
 
             String[][] targetArray;
+            String[] template;
+
             if ("standard".equalsIgnoreCase(roomType)) {
                 targetArray = NewServer.standardRoomsPerDate;
+                template = NewServer.standardTemplate;
             } else if ("premium".equalsIgnoreCase(roomType)) {
                 targetArray = NewServer.premiumRoomsPerDate;
+                template = NewServer.premiumTemplate;
             } else {
                 targetArray = NewServer.suiteRoomsPerDate;
+                template = NewServer.suiteTemplate;
             }
 
-            for (int i = 0; i < targetArray[dateIndex].length; i++) {
-                if (targetArray[dateIndex][i] != null &&
-                    targetArray[dateIndex][i].equalsIgnoreCase(roomName)) {
-
-                    // نحجز الغرفة لهذا التاريخ
-                    targetArray[dateIndex][i] = null;
-                    System.out.println("Room " + roomName + " reserved by " + userName + " for " + chosenDate);
-
-                    NewServer.reservations.add(
-                        new NewServer.Reservation(userName, roomType, chosenDate, roomName)
-                    );
-
-                    return "OK,ReservationDone for " + roomName + " on " + chosenDate;
+            // find room column
+            int roomCol = -1;
+            for (int i = 0; i < template.length; i++) {
+                if (template[i].equalsIgnoreCase(roomName)) {
+                    roomCol = i;
+                    break;
                 }
             }
-            return "ERR,RoomNotAvailable";
+            if (roomCol == -1) return "ERR,RoomNotFound";
+
+            // check availability for every night
+            for (int d = startIdx; d < endIdx; d++) {
+                if (targetArray[d][roomCol] == null) {
+                    return "ERR,RoomNotAvailableForWholeRange";
+                }
+            }
+
+            // mark taken for each night
+            for (int d = startIdx; d < endIdx; d++) {
+                targetArray[d][roomCol] = null;
+            }
+
+            // save reservation + log
+            NewServer.Reservation r = new NewServer.Reservation(
+                    userName, roomType, checkInDate, checkOutDate, roomName
+            );
+            NewServer.reservations.add(r);
+
+            System.out.println("Reservation added for " + userName +
+                    " -> " + roomName + " from " + checkInDate + " to " + checkOutDate);
+
+            return "OK,ReservationDone for " + roomName +
+                   " from " + checkInDate + " to " + checkOutDate;
         }
     }
 
-    // ========== إغلاق الاتصال ==========
     private void closeQuiet() {
         try { out.close(); } catch (Exception ignore) {}
         try { in.close(); } catch (Exception ignore) {}
         try { client.close(); } catch (Exception ignore) {}
     }
 }
-
-
 
 
 

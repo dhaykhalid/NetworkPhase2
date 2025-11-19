@@ -10,7 +10,7 @@ public class Client {
     private JFrame loginFrame, selectionFrame, reservationFrame, bookingsFrame;
     private JTextField usernameField, roomNameField;
     private JPasswordField passwordField;
-    private JComboBox<String> roomTypeBox, dateBox;
+    private JComboBox<String> roomTypeBox, fromDateBox, toDateBox;
     private JList<String> availableRoomsList;
     private JList<String> bookingsList;
     private JButton joinButton, showButton, reserveButton, backButton, exitButton;
@@ -83,7 +83,6 @@ public class Client {
         joinButton.addActionListener(e -> connectAndLogin());
         exitButton.addActionListener(e -> System.exit(0));
 
-        // ====== Right image with null-safe loading ======
         JLabel rightImage = new JLabel();
         rightImage.setHorizontalAlignment(SwingConstants.CENTER);
         rightImage.setVerticalAlignment(SwingConstants.CENTER);
@@ -124,11 +123,14 @@ public class Client {
         title.setForeground(darkBrown);
 
         JLabel roomTypeLabel = new JLabel("Room Type:");
-        JLabel dateLabel = new JLabel("Date:");
+        JLabel fromLabel = new JLabel("Check-in:");
+        JLabel toLabel = new JLabel("Check-out:");
         roomTypeLabel.setForeground(darkBrown);
-        dateLabel.setForeground(darkBrown);
+        fromLabel.setForeground(darkBrown);
+        toLabel.setForeground(darkBrown);
         roomTypeLabel.setFont(new Font("Poppins", Font.BOLD, 16));
-        dateLabel.setFont(new Font("Poppins", Font.BOLD, 16));
+        fromLabel.setFont(new Font("Poppins", Font.BOLD, 16));
+        toLabel.setFont(new Font("Poppins", Font.BOLD, 16));
 
         roomTypeBox = new JComboBox<>(new String[]{"standard", "premium", "suite"});
         roomTypeBox.setFont(new Font("Poppins", Font.PLAIN, 14));
@@ -137,8 +139,10 @@ public class Client {
                 "2025-10-16", "2025-10-17", "2025-10-18",
                 "2025-10-19", "2025-10-20", "2025-10-21", "2025-10-22"
         };
-        dateBox = new JComboBox<>(availableDates);
-        dateBox.setFont(new Font("Poppins", Font.PLAIN, 14));
+        fromDateBox = new JComboBox<>(availableDates);
+        toDateBox = new JComboBox<>(availableDates);
+        fromDateBox.setFont(new Font("Poppins", Font.PLAIN, 14));
+        toDateBox.setFont(new Font("Poppins", Font.PLAIN, 14));
 
         showButton = createStyledButton("Show");
         backButton = createStyledButton("Back");
@@ -152,14 +156,19 @@ public class Client {
         leftPanel.add(roomTypeBox, gbc);
 
         gbc.gridy = 2; gbc.gridx = 0;
-        leftPanel.add(dateLabel, gbc);
+        leftPanel.add(fromLabel, gbc);
         gbc.gridx = 1;
-        leftPanel.add(dateBox, gbc);
+        leftPanel.add(fromDateBox, gbc);
 
-        gbc.gridy = 3; gbc.gridx = 0; gbc.gridwidth = 2;
+        gbc.gridy = 3; gbc.gridx = 0;
+        leftPanel.add(toLabel, gbc);
+        gbc.gridx = 1;
+        leftPanel.add(toDateBox, gbc);
+
+        gbc.gridy = 4; gbc.gridx = 0; gbc.gridwidth = 2;
         leftPanel.add(showButton, gbc);
 
-        gbc.gridy = 4; gbc.gridwidth = 2;
+        gbc.gridy = 5; gbc.gridwidth = 2;
         leftPanel.add(backButton, gbc);
 
         showButton.addActionListener(e -> sendRoomSelection());
@@ -169,7 +178,6 @@ public class Client {
             setupLoginFrame();
         });
 
-        // ====== Right panel image with null-safe loading ======
         JLabel rightPanel = new JLabel();
         rightPanel.setHorizontalAlignment(SwingConstants.CENTER);
         rightPanel.setVerticalAlignment(SwingConstants.CENTER);
@@ -272,7 +280,6 @@ public class Client {
             }
         });
 
-        // ====== Background image null-safe ======
         java.net.URL bgURL = getClass().getResource("/Image/hotel4(1).png");
         if (bgURL != null) {
             ImageIcon bgIcon = new ImageIcon(bgURL);
@@ -288,127 +295,122 @@ public class Client {
         reservationFrame.setVisible(true);
     }
 
-    //================= BOOKINGS FRAME =================
-private void setupBookingsFrameFromServer() {
-    try {
-        String header = in.readLine();
+    //================= BOOKINGS FRAME (styled) =================
+    private void setupBookingsFrameFromServer() {
+        try {
+            String header = in.readLine();
 
-        if ("NO_RES".equals(header)) {
-            JOptionPane.showMessageDialog(null, "You have no reservations.");
-            closeConnection();
-            setupLoginFrame();
-            return;
-        }
+            if ("NO_RES".equals(header)) {
+                JOptionPane.showMessageDialog(null, "You have no reservations.");
+                closeConnection();
+                setupLoginFrame();
+                return;
+            }
 
-        if (!"RES_LIST".equals(header)) {
-            JOptionPane.showMessageDialog(null, "Unexpected response from server.");
-            closeConnection();
-            setupLoginFrame();
-            return;
-        }
+            if (!"RES_LIST".equals(header)) {
+                JOptionPane.showMessageDialog(null, "Unexpected response from server.");
+                closeConnection();
+                setupLoginFrame();
+                return;
+            }
 
-        String dataLine = in.readLine();   // reservation data
-        in.readLine();                     // "CHOOSE_INDEX" (ignored)
+            String dataLine = in.readLine();   // reservation data
+            in.readLine();                     // "CHOOSE_INDEX"
 
-        ArrayList<String> items = new ArrayList<>();
-        if (dataLine != null && !dataLine.isBlank()) {
-            String[] parts = dataLine.split(";");
-            for (String p : parts) {
-                if (p.isBlank()) continue;
-                String[] fields = p.split(",");
-                if (fields.length >= 4) {
-                    String idx  = fields[0];
-                    String type = fields[1];
-                    String date = fields[2];
-                    String room = fields[3];
-                    items.add("#" + idx + " - " + room + " (" + type + ") on " + date);
+            ArrayList<String> items = new ArrayList<>();
+            if (dataLine != null && !dataLine.isBlank()) {
+                String[] parts = dataLine.split(";");
+                for (String p : parts) {
+                    if (p.isBlank()) continue;
+                    String[] fields = p.split(",");
+                    // idx, type, startDate, endDate, roomName
+                    if (fields.length >= 5) {
+                        String idx   = fields[0];
+                        String type  = fields[1];
+                        String start = fields[2];
+                        String end   = fields[3];
+                        String room  = fields[4];
+                        items.add("#" + idx + " - " + room + " (" + type + ") from " + start + " to " + end);
+                    }
                 }
             }
-        }
 
-        bookingsFrame = new JFrame("My Bookings - Sakura Hotel");
-        bookingsFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        bookingsFrame.setSize(900, 650);
-        bookingsFrame.setLocationRelativeTo(null);
+            bookingsFrame = new JFrame("My Bookings - Sakura Hotel");
+            bookingsFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+            bookingsFrame.setSize(900, 650);
+            bookingsFrame.setLocationRelativeTo(null);
 
-        // ====== Background image (same as reservationFrame) ======
-        java.net.URL bgURL = getClass().getResource("/Image/hotel4(1).png");
-        if (bgURL != null) {
-            ImageIcon bgIcon = new ImageIcon(bgURL);
-            Image bgScaled = bgIcon.getImage().getScaledInstance(900, 650, Image.SCALE_SMOOTH);
-            bookingsFrame.setContentPane(new JLabel(new ImageIcon(bgScaled)));
-            bookingsFrame.getContentPane().setLayout(null);
-        } else {
-            System.out.println("Image not found: /Image/hotel4(1).png");
-            bookingsFrame.setContentPane(new JPanel(null));
-        }
-
-        // ====== Center pink panel (card) ======
-        JPanel contentPanel = new JPanel(new GridBagLayout());
-        contentPanel.setBackground(sakuraPink);
-        contentPanel.setBounds(200, 120, 500, 380); // same size/position as reservationFrame
-        contentPanel.setBorder(BorderFactory.createLineBorder(darkBrown, 3));
-
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(10, 10, 10, 10);
-        gbc.fill = GridBagConstraints.BOTH;
-
-        JLabel title = new JLabel("My Bookings");
-        title.setFont(new Font("Poppins", Font.BOLD, 20));
-        title.setForeground(darkBrown);
-
-        DefaultListModel<String> model = new DefaultListModel<>();
-        for (String s : items) model.addElement(s);
-
-        bookingsList = new JList<>(model);
-        bookingsList.setFont(new Font("Poppins", Font.PLAIN, 15));
-
-        JScrollPane scrollPane = new JScrollPane(bookingsList);
-        scrollPane.setPreferredSize(new Dimension(350, 160));
-
-        cancelBookingButton = createStyledButton("Cancel Selected");
-        backBookingsButton   = createStyledButton("Back");
-
-        JPanel buttonPanel = new JPanel();
-        buttonPanel.setBackground(sakuraPink);
-        buttonPanel.add(cancelBookingButton);
-        buttonPanel.add(backBookingsButton);
-
-        // ====== add components to card ======
-        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 1;
-        contentPanel.add(title, gbc);
-
-        gbc.gridy = 1;
-        contentPanel.add(scrollPane, gbc);
-
-        gbc.gridy = 2;
-        contentPanel.add(buttonPanel, gbc);
-
-        // ====== actions ======
-        cancelBookingButton.addActionListener(e -> cancelSelectedBooking());
-        backBookingsButton.addActionListener(e -> {
-            try {
-                out.println("-1");  // no cancellation
-                in.readLine();      // "No cancellation made."
-            } catch (IOException ex) {
-                // ignore
+            java.net.URL bgURL = getClass().getResource("/Image/hotel4(1).png");
+            if (bgURL != null) {
+                ImageIcon bgIcon = new ImageIcon(bgURL);
+                Image bgScaled = bgIcon.getImage().getScaledInstance(900, 650, Image.SCALE_SMOOTH);
+                bookingsFrame.setContentPane(new JLabel(new ImageIcon(bgScaled)));
+                bookingsFrame.getContentPane().setLayout(null);
+            } else {
+                System.out.println("Image not found: /Image/hotel4(1).png");
+                bookingsFrame.setContentPane(new JPanel(null));
             }
+
+            JPanel contentPanel = new JPanel(new GridBagLayout());
+            contentPanel.setBackground(sakuraPink);
+            contentPanel.setBounds(200, 120, 500, 380);
+            contentPanel.setBorder(BorderFactory.createLineBorder(darkBrown, 3));
+
+            GridBagConstraints gbc = new GridBagConstraints();
+            gbc.insets = new Insets(10, 10, 10, 10);
+            gbc.fill = GridBagConstraints.BOTH;
+
+            JLabel title = new JLabel("My Bookings わたしの よやく");
+            title.setFont(new Font("Poppins", Font.BOLD, 20));
+            title.setForeground(darkBrown);
+
+            DefaultListModel<String> model = new DefaultListModel<>();
+            for (String s : items) model.addElement(s);
+
+            bookingsList = new JList<>(model);
+            bookingsList.setFont(new Font("Poppins", Font.PLAIN, 15));
+            JScrollPane scrollPane = new JScrollPane(bookingsList);
+            scrollPane.setPreferredSize(new Dimension(350, 160));
+
+            cancelBookingButton = createStyledButton("Cancel Selected");
+            backBookingsButton  = createStyledButton("Back");
+
+            JPanel buttonPanel = new JPanel();
+            buttonPanel.setBackground(sakuraPink);
+            buttonPanel.add(cancelBookingButton);
+            buttonPanel.add(backBookingsButton);
+
+            gbc.gridx = 0; gbc.gridy = 0;
+            contentPanel.add(title, gbc);
+            gbc.gridy = 1;
+            contentPanel.add(scrollPane, gbc);
+            gbc.gridy = 2;
+            contentPanel.add(buttonPanel, gbc);
+
+            cancelBookingButton.addActionListener(e -> cancelSelectedBooking());
+            backBookingsButton.addActionListener(e -> {
+                try {
+                    out.println("-1");
+                    in.readLine();      // "No cancellation made."
+                } catch (IOException ex) {
+                    // ignore
+                }
+                closeConnection();
+                bookingsFrame.dispose();
+                setupLoginFrame();
+            });
+
+            bookingsFrame.getContentPane().add(contentPanel);
+            bookingsFrame.setVisible(true);
+
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(null, "Error loading bookings.");
             closeConnection();
-            bookingsFrame.dispose();
             setupLoginFrame();
-        });
-
-        bookingsFrame.getContentPane().add(contentPanel);
-        bookingsFrame.setVisible(true);
-
-    } catch (IOException ex) {
-        JOptionPane.showMessageDialog(null, "Error loading bookings.");
-        closeConnection();
-        setupLoginFrame();
+        }
     }
-}
 
-private void cancelSelectedBooking() {
+    private void cancelSelectedBooking() {
         int selected = bookingsList.getSelectedIndex();
         if (selected == -1) {
             JOptionPane.showMessageDialog(bookingsFrame, "Please select a reservation to cancel.");
@@ -484,13 +486,27 @@ private void cancelSelectedBooking() {
     private void sendRoomSelection() {
         try {
             String roomType = (String) roomTypeBox.getSelectedItem();
-            String date = (String) dateBox.getSelectedItem();
+            int fromIdx = fromDateBox.getSelectedIndex();
+            int toIdx   = toDateBox.getSelectedIndex();
 
-            String prompt1 = in.readLine();
+            // simple validation here before sending to server
+            if (toIdx <= fromIdx) {
+                JOptionPane.showMessageDialog(selectionFrame,
+                        "Check-out must be after check-in.");
+                return;
+            }
+
+            String from = (String) fromDateBox.getSelectedItem();
+            String to   = (String) toDateBox.getSelectedItem();
+
+            String prompt1 = in.readLine(); // type
             if (prompt1 != null && prompt1.contains("type")) out.println(roomType);
 
-            String prompt2 = in.readLine();
-            if (prompt2 != null && prompt2.contains("date")) out.println(date);
+            String prompt2 = in.readLine(); // check-in
+            if (prompt2 != null && prompt2.contains("check-in")) out.println(from);
+
+            String prompt3 = in.readLine(); // check-out
+            if (prompt3 != null && prompt3.contains("check-out")) out.println(to);
 
             in.readLine(); // "AVAILABLE:"
             String availableList = in.readLine();
@@ -538,7 +554,6 @@ private void cancelSelectedBooking() {
         }
     }
 
-    //================= STYLED BUTTON =================
     private JButton createStyledButton(String text) {
         JButton btn = new JButton(text);
         btn.setBackground(darkBrown);
